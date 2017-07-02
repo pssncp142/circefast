@@ -11,6 +11,8 @@
 #include "fileio.h"
 #include "engine.h"
 
+#define NUM_THREADS 5
+
 int darksub(config tconfig, fitsobj *dark, int ndx, int st){  
 
   fitsobj *data = malloc(sizeof(fitsobj));
@@ -54,6 +56,7 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
       5.843e-14*val*val*val*val;
       proc->data[i] = val;
     }
+
   }
   
 
@@ -65,6 +68,9 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
   sprintf(f_name, f_fmt, tconfig.seq, ndx-st+1);  
   write_fits(f_name, proc);
 
+  free(data->data);
+  free(data->data2);
+  free(proc->data);
   free(data);
   free(proc);
   
@@ -124,6 +130,8 @@ int doskies(config tconfig, int ndx, int st){
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);
   write_single_fits(f_name, proc);
 
+  free(data->data);
+  free(proc->data);
   free(data);
   free(proc);
 
@@ -175,6 +183,8 @@ int skysub(config tconfig, fitsobj *sky, int ndx, int st){
   write_fits(f_name, proc);
 
 
+  free(data->data);
+  free(proc->data);
   free(data);
   free(proc);
 
@@ -226,6 +236,8 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
   write_fits(f_name, proc);
 
+  free(data->data);
+  free(proc->data);
   free(data);
   free(proc);
 
@@ -260,7 +272,7 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel  num_threads(1)
+  #pragma omp parallel
   {
     //float *badpixim = malloc(sizeof(float)*pix_img);
     //float *image = malloc(sizeof(float)*pix_img);
@@ -273,7 +285,7 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
     for (i=0; i<nimages; i++){
       //memcpy(image, &data_ref[i*pix_img], sizeof(float)*pix_img);
       //memcpy(badpixim, &badpix->data[0], sizeof(float)*pix_img);
-      badpixfun(&image[i*pix_img], badpixim, data->naxis1, data->naxis2);
+      badpixfun(&image[i*pix_img], &badpixim[0], data->naxis1, data->naxis2);
       memcpy(&proc_ref[i*pix_img], &image[i*pix_img], sizeof(float)*pix_img);
     }
 
@@ -287,6 +299,8 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
   write_fits(f_name, proc);
 
+  free(data->data);
+  free(proc->data);
   free(data);
   free(proc);
 
@@ -329,22 +343,27 @@ int fftcorr(config tconfig, int ndx, int st){
     fftw_complex *ff2dback = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
     fftw_plan pfor, pback;
     #pragma omp critical
+    {
     pfor = fftw_plan_dft_2d(data->naxis2, 64, ff2dfor, ff2dfor, FFTW_FORWARD, FFTW_ESTIMATE);
-    #pragma omp critical
     pback = fftw_plan_dft_2d(data->naxis2, 64, ff2dfor, ff2dback, FFTW_BACKWARD, FFTW_ESTIMATE);
     fftw_free(ff2dfor);
     fftw_free(ff2dback);
+    }
 
     #pragma omp for
     for (i=0; i<nimages; i++){
       memcpy(image, &data->data[i*pix_img], sizeof(float)*pix_img);
       fftcorrfun(image, data->naxis1, data->naxis2, pfor, pback);
       memcpy(&proc->data[i*pix_img], &image[0], sizeof(float)*pix_img);
+      //fftcorrfun(&proc->data[i*pix_img], data->naxis1, data->naxis2, pfor, pback);
     }
-    
+
+    #pragma omp critical
+    {
     free(image);
     fftw_destroy_plan(pfor);
     fftw_destroy_plan(pback);
+    }
   }
   
   printf("Thread %d fftcorr calc in %.2f ms\n", 
@@ -353,6 +372,8 @@ int fftcorr(config tconfig, int ndx, int st){
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
   write_fits(f_name, proc);
 
+  free(data->data);
+  free(proc->data);
   free(data);
   free(proc);
 
@@ -404,6 +425,8 @@ int tile_images(config tconfig, int ndx, int st){
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
 
+  free(proc->data);
+  free(data->data);
   free(data);
   free(proc);
 
@@ -413,17 +436,18 @@ int tile_images(config tconfig, int ndx, int st){
 
 int darksub_all(config tconfig){
 
-  int i; double time;
+  int i;   double time;
   fitsobj *dark = malloc(sizeof(fitsobj));
-  printf("yo3\n");
-  read_fits_omp(tconfig.f_dark, dark);
-  printf("yo4\n");
+  read_fits(tconfig.f_dark, dark);
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel firstprivate(dark) num_threads(NUM_THREADS)
   {
+
     #pragma omp master
+    {
     printf("**Darksub with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
+    }
 
   #pragma omp for
   for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
@@ -436,6 +460,7 @@ int darksub_all(config tconfig){
     printf("Darksub %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
   
+  free(dark->data);
   free(dark);
   return(0);
 }
@@ -444,7 +469,7 @@ int doskies_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel private(time) num_threads(NUM_THREADS)
   {
 #pragma omp master
     printf("**Dosky with %d threads\n", omp_get_num_threads());
@@ -472,7 +497,7 @@ int skysub_all(config tconfig){
   fitsobj * sky = malloc(sizeof(fitsobj));
   int npixels;
 
-#pragma omp parallel private(time, tmp_arr) shared(tmp_skies) num_threads(5)
+#pragma omp parallel private(tmp_arr) shared(tmp_skies) num_threads(NUM_THREADS)
   {
     fitsobj *skies = malloc(sizeof(fitsobj));
     char f_name[100]; int id, j;
@@ -496,11 +521,13 @@ int skysub_all(config tconfig){
       sky->data = malloc(sizeof(float)*npixels);
     }
      
-    #pragma omp critical
-    for (j=0; j<npixels; j++)
-      tmp_skies[j+id*npixels] = skies->data[j];
+    #pragma omp for private(j)
+    for (i=0; i<tconfig.n_dith; i++)
+      for (j=0; j<npixels; j++)
+	tmp_skies[j+i*npixels] = skies->data[j];
 
     #pragma omp barrier
+    free(skies->data);
     free(skies);
 
 
@@ -524,7 +551,8 @@ int skysub_all(config tconfig){
     #pragma omp master
     printf("Skysub %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
-  
+
+  free(sky->data);
   free(sky);
   return(0);
 }
@@ -533,22 +561,24 @@ int flatdivide_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel private(time) num_threads(NUM_THREADS)
   {
-    #pragma omp master
+#pragma omp master
     printf("**flatdivide with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
 
     fitsobj *flat = malloc(sizeof(fitsobj));
-
     read_single_fits(tconfig.f_flat, flat);
 
   #pragma omp for
-  for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
-    flatdivide(tconfig, flat, i, tconfig.st);
-  }
+    for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
+      flatdivide(tconfig, flat, i, tconfig.st);
+    }
 
-    #pragma omp master
+    free(flat->data); 
+    free(flat);
+ 
+#pragma omp master
     printf("flatdivide %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
 
@@ -559,26 +589,32 @@ int flatdivide_all(config tconfig){
 int badpixrem_all(config tconfig){
 
   int i; double time;
+  fitsobj *badpix = malloc(sizeof(fitsobj));
+  read_single_fits(tconfig.f_badp, badpix);
+
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel firstprivate(badpix) num_threads(NUM_THREADS)
   {
-    #pragma omp master
-    printf("**badpix with %d threads\n", omp_get_num_threads());
-    time = omp_get_wtime();
+    #pragma omp single
+    {
+      printf("**badpix with %d threads\n", omp_get_num_threads());
+      time = omp_get_wtime();
+    }
 
-    fitsobj *badpix = malloc(sizeof(fitsobj));
-
-    read_single_fits(tconfig.f_badp, badpix);
 
   #pragma omp for
   for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
     badpixrem(tconfig, badpix, i, tconfig.st);
   }
 
-  free(badpix);
-#pragma omp master
+  #pragma omp barrier
+  
+  #pragma omp master
   printf("badpix %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
+
+  free(badpix->data);
+  free(badpix);
 
   
   return(0);
@@ -588,7 +624,7 @@ int fftcorr_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel private(time) num_threads(NUM_THREADS)
   {
     #pragma omp master
     printf("**fftcorr with %d threads\n", omp_get_num_threads());
@@ -611,7 +647,7 @@ int tile_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(5)
+#pragma omp parallel private(time) num_threads(NUM_THREADS)
   {
     #pragma omp master
     printf("**tile with %d threads\n", omp_get_num_threads());
@@ -635,7 +671,6 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 
   int i, j, k, l;
   float* im_proc = malloc(sizeof(float)*naxis1*naxis2);
-  //float* tmp_list = malloc(sizeof(float)*9);
   double tmp_list[9];
   double med, med2, std, std2;
   double* tmp_im = malloc(sizeof(double)*naxis1*naxis2);
@@ -720,6 +755,8 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
   int i, j, k;
   int stride;
   double tmp_arr[2048];
+  double mean, std;
+  double med;
 
   memcpy(orig, image, sizeof(float)*npix);
   
@@ -751,7 +788,6 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
       }
     }
 
-    double mean, std;
     mean =0; std=0;
 
     for(i=stride; i<stride+64; i++){
@@ -783,7 +819,6 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
     }
   }
 
-  double med;
 
   for (j = 0; j<naxis2; j++ ){
     for(i=0; i<naxis1; i++)

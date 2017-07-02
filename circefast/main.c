@@ -34,6 +34,8 @@ int main(int argc, char* argv[]){
   tconfig.band_ndx[0] = 341;
   tconfig.band_ndx[1] = 1707;
 
+  //omp_set_nested(1);
+  
   printf("***seqs %d\n", tconfig.seq);
 
   darksub_all(tconfig);
