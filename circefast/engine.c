@@ -272,7 +272,7 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel
+#pragma omp parallel num_threads(1)
   {
     //float *badpixim = malloc(sizeof(float)*pix_img);
     //float *image = malloc(sizeof(float)*pix_img);
@@ -437,13 +437,14 @@ int tile_images(config tconfig, int ndx, int st){
 int darksub_all(config tconfig){
 
   int i;   double time;
-  fitsobj *dark = malloc(sizeof(fitsobj));
-  read_fits(tconfig.f_dark, dark);
   
-#pragma omp parallel firstprivate(dark) num_threads(NUM_THREADS)
+#pragma omp parallel num_threads(NUM_THREADS)
   {
 
-    #pragma omp master
+    fitsobj *dark = malloc(sizeof(fitsobj));
+    read_fits(tconfig.f_dark, dark);
+
+#pragma omp master
     {
     printf("**Darksub with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
@@ -458,10 +459,11 @@ int darksub_all(config tconfig){
 
     #pragma omp master
     printf("Darksub %.2f ms\n", (omp_get_wtime()-time)*1000);
+
+    free(dark->data);
+    free(dark);
   }
   
-  free(dark->data);
-  free(dark);
   return(0);
 }
 
@@ -497,10 +499,12 @@ int skysub_all(config tconfig){
   fitsobj * sky = malloc(sizeof(fitsobj));
   int npixels;
 
-#pragma omp parallel private(tmp_arr) shared(tmp_skies) num_threads(NUM_THREADS)
+  char f_name[100];
+
+#pragma omp parallel private(tmp_arr) private(f_name) num_threads(NUM_THREADS)
   {
     fitsobj *skies = malloc(sizeof(fitsobj));
-    char f_name[100]; int id, j;
+    int id, j;
 
     id = omp_get_thread_num();
 
@@ -508,23 +512,23 @@ int skysub_all(config tconfig){
     printf("**Skysub with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
 
-    #pragma omp for
+    #pragma omp single
+    {
+      sprintf(f_name, f_fmt_in, tconfig.seq, 1);
+      read_single_fits(f_name, sky);
+      npixels = sky->naxis1*sky->naxis2;
+      tmp_skies = malloc(sizeof(float)*npixels*tconfig.n_dith);
+      sky->data = malloc(sizeof(float)*npixels); 
+    }
+
+    #pragma omp for private(j)
     for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
       sprintf(f_name, f_fmt_in, tconfig.seq, i-tconfig.st+1);
       read_single_fits(f_name, skies);
-    }
- 
-    #pragma omp single
-    {
-      npixels = skies->naxis1*skies->naxis2;
-      tmp_skies = malloc(sizeof(float)*npixels*tconfig.n_dith);
-      sky->data = malloc(sizeof(float)*npixels);
-    }
-     
-    #pragma omp for private(j)
-    for (i=0; i<tconfig.n_dith; i++)
       for (j=0; j<npixels; j++)
-	tmp_skies[j+i*npixels] = skies->data[j];
+	tmp_skies[j+(i-tconfig.st)*npixels] = skies->data[j];
+    }
+
 
     #pragma omp barrier
     free(skies->data);
@@ -536,8 +540,7 @@ int skysub_all(config tconfig){
       for (j=0; j<tconfig.n_dith; j++)
 	tmp_arr[j] = (double) tmp_skies[i+j*npixels];
       gsl_sort(tmp_arr, 1, tconfig.n_dith);
-      sky->data[i] = (float) 
-	gsl_stats_median_from_sorted_data(tmp_arr, 1, tconfig.n_dith);
+      sky->data[i] = (float) gsl_stats_median_from_sorted_data(tmp_arr, 1, tconfig.n_dith);
     }
 
     #pragma omp for
@@ -552,8 +555,17 @@ int skysub_all(config tconfig){
     printf("Skysub %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
 
+  fitsobj *flat = malloc(sizeof(fitsobj));
+  read_single_fits(tconfig.f_flat, flat);
+  for (i=0; i<npixels;i++)
+    sky->data[i] /= flat->data[tconfig.band_ndx[0]*2048+i];
+  sprintf(f_name, "skies/IPA_deq%d_chk.fits", tconfig.seq);
+  write_single_fits(f_name, sky);  
+  
+  free(flat->data);
   free(sky->data);
   free(sky);
+  free(flat);
   return(0);
 }
 
@@ -561,16 +573,16 @@ int flatdivide_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(NUM_THREADS)
+#pragma omp parallel num_threads(NUM_THREADS)
   {
 #pragma omp master
     printf("**flatdivide with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
 
-    fitsobj *flat = malloc(sizeof(fitsobj));
-    read_single_fits(tconfig.f_flat, flat);
+  fitsobj *flat = malloc(sizeof(fitsobj));
+  read_single_fits(tconfig.f_flat, flat);
 
-  #pragma omp for
+#pragma omp for
     for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
       flatdivide(tconfig, flat, i, tconfig.st);
     }
@@ -589,12 +601,11 @@ int flatdivide_all(config tconfig){
 int badpixrem_all(config tconfig){
 
   int i; double time;
-  fitsobj *badpix = malloc(sizeof(fitsobj));
-  read_single_fits(tconfig.f_badp, badpix);
-
   
-#pragma omp parallel firstprivate(badpix) num_threads(NUM_THREADS)
+#pragma omp parallel num_threads(NUM_THREADS)
   {
+    fitsobj *badpix = malloc(sizeof(fitsobj));
+    read_single_fits(tconfig.f_badp, badpix);
     #pragma omp single
     {
       printf("**badpix with %d threads\n", omp_get_num_threads());
@@ -603,18 +614,19 @@ int badpixrem_all(config tconfig){
 
 
   #pragma omp for
-  for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
-    badpixrem(tconfig, badpix, i, tconfig.st);
-  }
+    for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
+      badpixrem(tconfig, badpix, i, tconfig.st);
+    }
 
   #pragma omp barrier
   
   #pragma omp master
-  printf("badpix %.2f ms\n", (omp_get_wtime()-time)*1000);
-  }
+    printf("badpix %.2f ms\n", (omp_get_wtime()-time)*1000);
 
-  free(badpix->data);
-  free(badpix);
+    free(badpix->data);
+    free(badpix);
+
+  }
 
   
   return(0);
@@ -677,8 +689,8 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 
   long npix = naxis1*naxis2;
 
-  for (j=1; j<naxis2-1; j++){
-    for (i=1; i<naxis1-1; i++){
+  for (j=0; j<naxis2; j++){
+    for (i=0; i<naxis1; i++){
       if(!isfinite(image[naxis1*j+i]))
 	image[naxis1*j+i] = 0;
     }
@@ -740,6 +752,7 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 
   free(im_proc);
   return(0);
+
 }
 
 
