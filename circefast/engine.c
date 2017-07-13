@@ -391,7 +391,7 @@ int tile_images(config tconfig, int ndx, int st){
   char f_fmt_in[100] = "badpixrem/IPA_seq%d_dith_%d.fits";
   char f_fmt_out[100] = "tile/Image_%04d.fits";
   double time;
-  int bin = 1;
+  //int bin = 1;
   int crop[2] = {1, 30};
 
   sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
@@ -437,23 +437,23 @@ int tile_images(config tconfig, int ndx, int st){
 int darksub_all(config tconfig){
 
   int i;   double time;
-  
+
 #pragma omp parallel num_threads(NUM_THREADS)
   {
 
     fitsobj *dark = malloc(sizeof(fitsobj));
     read_fits(tconfig.f_dark, dark);
 
-#pragma omp master
+    #pragma omp master
     {
-    printf("**Darksub with %d threads\n", omp_get_num_threads());
-    time = omp_get_wtime();
+      printf("**Darksub with %d threads\n", omp_get_num_threads());
+      time = omp_get_wtime();
     }
 
-  #pragma omp for
-  for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
-    darksub(tconfig, dark, i, tconfig.st);
-  }
+    #pragma omp for
+    for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
+      darksub(tconfig, dark, i, tconfig.st);
+    }
 
     #pragma omp barrier
 
@@ -462,8 +462,9 @@ int darksub_all(config tconfig){
 
     free(dark->data);
     free(dark);
-  }
-  
+
+    }
+
   return(0);
 }
 
@@ -492,7 +493,7 @@ int doskies_all(config tconfig){
 
 int skysub_all(config tconfig){
 
-  int i; double time;
+  int i,j; double time;
   float *tmp_skies;
   double tmp_arr[tconfig.n_dith];
   char f_fmt_in[100] = "skies/IPA_seq%d_dith_%d.fits";
@@ -504,9 +505,8 @@ int skysub_all(config tconfig){
 #pragma omp parallel private(tmp_arr) private(f_name) num_threads(NUM_THREADS)
   {
     fitsobj *skies = malloc(sizeof(fitsobj));
-    int id, j;
 
-    id = omp_get_thread_num();
+    //id = omp_get_thread_num();
 
     #pragma omp master
     printf("**Skysub with %d threads\n", omp_get_num_threads());

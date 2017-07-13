@@ -86,7 +86,7 @@ int read_fits(char *f_name, fitsobj* obj){
   fits_movabs_hdu(fptr, 1, &hdutype, &status);
   fits_read_key(fptr, TINT, "NGROUPS", &obj->ngroups, card, &status);
   fits_read_key(fptr, TINT, "NRAMPS", &obj->nramps, card, &status);
-  
+
   fits_movabs_hdu(fptr, 2, &hdutype, &status);
   fits_read_key(fptr, TINT, "NAXIS1", &obj->naxis1, card, &status);
   fits_read_key(fptr, TINT, "NAXIS2", &obj->naxis2, card, &status);
@@ -94,6 +94,7 @@ int read_fits(char *f_name, fitsobj* obj){
   obj->data = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
 		     (obj->ngroups-1));
   npixels = obj->naxis1*obj->naxis2;
+
 
   for (i=0; i<obj->nramps; i++){
     for (j=0; j<obj->ngroups-1; j++){ 
@@ -105,8 +106,6 @@ int read_fits(char *f_name, fitsobj* obj){
     }
   }
   
-  //fits_get_errstatus(status, f_name);
-  //printf("%s\n", f_name);
   fits_close_file(fptr, &status);
   return(0);
 }
