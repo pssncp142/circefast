@@ -50,10 +50,14 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
     for (i=0; i<npixels; i++){
       //val = data->data2[i]-data->data[i]-dark->data[i];
       val = data_img2[i]-data_img1[i]-dark_img[i];
-      val = 0.97459*val+
-      3.9508e-5*val*val+
-      -2.4997e-9*val*val*val+
-      5.843e-14*val*val*val*val;
+      /*val = 1.072*val-
+	3.046e-5*val*val+
+      4.764e-9*val*val*val-
+      2.605e-13*val*val*val*val;*/      
+      val = 0.9701104*val+
+      1.106431e-5*val*val+
+      -7.3981e-10*val*val*val+
+      2.490898e-14*val*val*val*val;
       proc->data[i] = val;
     }
 
@@ -437,6 +441,7 @@ int tile_images(config tconfig, int ndx, int st){
 int darksub_all(config tconfig){
 
   int i;   double time;
+  printf("%s\n", tconfig.f_dark);
 
 #pragma omp parallel num_threads(NUM_THREADS)
   {

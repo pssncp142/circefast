@@ -1,6 +1,8 @@
 from ctypes import *
 
-libcf = cdll.LoadLibrary("./circefast/circefast.so")
+path = "/".join(__file__.split('/')[:-1]) + "/circefast.so"
+
+libcf = cdll.LoadLibrary(path)
 
 
 class config(Structure):
@@ -44,11 +46,10 @@ def init():
     conf = config()
 
     conf.path = ""
-    conf.f_dark = "/home/ydallilar/software/circefast/darks/dark_band_0341_1706_02_005_04869.fits"
+    conf.f_dark = "darks/dark_band_0341_1706_02_005_04869.fits"
     conf.f_badp = "darks/badpix_band_0341_1706_02_005_04869.fits"
     conf.f_flat = "darks/flat_35.fits"
     conf.f_name = "data/CIRCE2017-05-23-%04d.fits"
-    conf.seq = 1
     conf.n_dith = 5
     conf.band_ndx[0] = 341
     conf.band_ndx[1] = 1707

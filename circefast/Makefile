@@ -1,6 +1,6 @@
 CC=gcc
 #CFITSIO=../cfitsio
-CFITSIO=/home/ydallilar/software/circefast/cfitsio
+CFITSIO=/scratch1/ydallilar/circefast/cfitsio
 INCDIR=$(CFITSIO)/include
 LIBDIR=$(CFITSIO)/lib
 OPTS=-Wall -Wl,-rpath,$(CFITSIO)/lib #-funroll-loops

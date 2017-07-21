@@ -19,12 +19,12 @@ int main(int argc, char* argv[]){
   time = omp_get_wtime();
   printf("yo2\n");
   config tconfig;
-  strcpy(tconfig.path, "");
+  strcpy(tconfig.path, "/scratch1/CIRCE/2017-05-23/");
   strcpy(tconfig.f_dark, "darks/dark_band_0341_1706_02_005_04869.fits");
   strcpy(tconfig.f_badp, "darks/badpix_band_0341_1706_02_005_04869.fits");
-  strcpy(tconfig.f_flat, "darks/flat_35.fits");
+  strcpy(tconfig.f_flat, "darks/flat_34_36.fits");
   //strcpy(tconfig.f_flat, "darks/sky_flat_lin.fits");
-  strcpy(tconfig.f_name, "data/CIRCE2017-05-23-%04d.fits");
+  strcpy(tconfig.f_name, "CIRCE2017-05-23-%04d.fits");
   //tconfig.n_dith = 5;
   //tconfig.f_arr[0] = 79;
   //tconfig.f_arr[1] = 84;
