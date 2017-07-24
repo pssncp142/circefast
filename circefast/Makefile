@@ -3,7 +3,7 @@ CC=gcc
 CFITSIO=/scratch1/ydallilar/circefast/cfitsio
 INCDIR=$(CFITSIO)/include
 LIBDIR=$(CFITSIO)/lib
-OPTS=-Wall -Wl,-rpath,$(CFITSIO)/lib #-funroll-loops
+OPTS=-Wall -Wl,-rpath,$(CFITSIO)/lib -funroll-loops
 LIBS=-lcfitsio -lm -lgsl -lgslcblas -lfftw3 -O3 -fopenmp
 
 DEPS=fileio.h engine.h
