@@ -23,70 +23,7 @@ int fits_info(fitsobj* fitso, char* func){
   return(0);
 }
 
-
-int read_fits_omp(char *f_name, fitsobj* obj){
-
-  int status, hdutype, npixels, anynull;
-  int nullval = 0;
-  fitsfile *fptr;
-  char card[FLEN_CARD];
-  int i,j;
-  int hdu_num;
-
-  status = 0;
-
-  fits_open_file(&fptr, f_name, READONLY, &status);
-  
-  fits_movabs_hdu(fptr, 1, &hdutype, &status);
-  fits_read_key(fptr, TINT, "NGROUPS", &obj->ngroups, card, &status);
-  fits_read_key(fptr, TINT, "NRAMPS", &obj->nramps, card, &status);
-  
-  fits_movabs_hdu(fptr, 2, &hdutype, &status);
-  fits_read_key(fptr, TINT, "NAXIS1", &obj->naxis1, card, &status);
-  fits_read_key(fptr, TINT, "NAXIS2", &obj->naxis2, card, &status);
-
-  //fits_close_file(fptr, &status);
-
-  obj->data = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
-		     (obj->ngroups-1));
-  npixels = obj->naxis1*obj->naxis2;
-
-  /*
-  //#pragma omp parallel for private(j, status, nullval, anynull)
-  for (i=0; i<obj->nramps; i++){
-    for (j=0; j<obj->ngroups-1; j++){ 
-      hdu_num = 2+j+i*(obj->ngroups-1);
-      fits_movabs_hdu(fptr, hdu_num, &hdutype, &status);
-      fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
-		    &obj->data[npixels*(i*(obj->ngroups-1)+j)],
-		    &anynull, &status);
-    }
-  }*/
-
-  //fits_close_file(fptr, &status);
-
-#pragma omp parallel private(j, status, nullval, anynull, fptr) num_threads(5)
-  {
-
-  fits_open_file(&fptr, f_name, READONLY, &status);
-
-  #pragma omp for
-  for (i=0; i<obj->nramps; i++){
-    for (j=0; j<obj->ngroups-1; j++){ 
-      hdu_num = 2+j+i*(obj->ngroups-1);
-      fits_movabs_hdu(fptr, hdu_num, &hdutype, &status);
-      fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
-		    &obj->data[npixels*(i*(obj->ngroups-1)+j)],
-		    &anynull, &status);
-    }
-  }
-
-  }
-
-  fits_close_file(fptr, &status);
-  return(0);
-}
-
+//read fits into a fits object
 int read_fits(char *f_name, fitsobj* obj){
 
   char func[100] = "read_fits";
@@ -116,7 +53,6 @@ int read_fits(char *f_name, fitsobj* obj){
   obj->status = status;
   strcpy(obj->f_name, f_name);
   fits_info(obj, &func[0]);
-  printf("%d, %d\n", omp_get_thread_num(), obj->status);
   if (obj->status > 0) exit(1);
 
   for (i=0; i<obj->nramps; i++){
@@ -133,6 +69,8 @@ int read_fits(char *f_name, fitsobj* obj){
   return(0);
 }
 
+//read fits into a fits object. 
+//Need to fix nramps, nroups
 int read_single_fits(char *f_name, fitsobj* obj){
 
   char func[100] = "read_single_fits";
@@ -159,15 +97,13 @@ int read_single_fits(char *f_name, fitsobj* obj){
   obj->status = status;
   strcpy(obj->f_name, f_name);
   fits_info(obj, &func[0]);
-  printf("%d, %d\n", omp_get_thread_num(), obj->status);
   if (obj->status > 0) exit(1);
-
-  //printf("%d, %d\n", omp_get_thread_num(), status);
 
   fits_close_file(fptr, &status);
   return(0);
 }
 
+//read raw files in data2, data. Resulting images data2-data.
 int read_diff_fits(char *f_name, fitsobj* obj){
 
   char func[100] = "read_diff_fits";
@@ -176,7 +112,6 @@ int read_diff_fits(char *f_name, fitsobj* obj){
   fitsfile *fptr;
   char card[FLEN_CARD];
   int i,j;
-  //float *tmp;
   int hdu_num;
 
   status = 0;
@@ -202,7 +137,6 @@ int read_diff_fits(char *f_name, fitsobj* obj){
   obj->status = status;
   strcpy(obj->f_name, f_name);
   fits_info(obj, &func[0]);
-  printf("%d, %d\n", omp_get_thread_num(), obj->status);
   if (obj->status > 0) exit(1);
 
   for (i=0; i<obj->nramps; i++){
