@@ -23,6 +23,7 @@ int fits_info(fitsobj* fitso, char* func){
   return(0);
 }
 
+
 //read fits into a fits object
 int read_fits(char *f_name, fitsobj* obj){
 
@@ -34,23 +35,23 @@ int read_fits(char *f_name, fitsobj* obj){
   int i,j;
   int hdu_num;
 
-  status = 0;
+  obj->status = 0;
 
-  fits_open_file(&fptr, f_name, READONLY, &status);
+  fits_open_file(&fptr, f_name, READONLY, &obj->status);
   
-  fits_movabs_hdu(fptr, 1, &hdutype, &status);
-  fits_read_key(fptr, TINT, "NGROUPS", &obj->ngroups, card, &status);
-  fits_read_key(fptr, TINT, "NRAMPS", &obj->nramps, card, &status);
+  fits_movabs_hdu(fptr, 1, &hdutype, &obj->status);
+  fits_read_key(fptr, TINT, "NGROUPS", &obj->ngroups, card, &obj->status);
+  fits_read_key(fptr, TINT, "NRAMPS", &obj->nramps, card, &obj->status);
 
-  fits_movabs_hdu(fptr, 2, &hdutype, &status);
-  fits_read_key(fptr, TINT, "NAXIS1", &obj->naxis1, card, &status);
-  fits_read_key(fptr, TINT, "NAXIS2", &obj->naxis2, card, &status);
+  fits_movabs_hdu(fptr, 2, &hdutype, &obj->status);
+  fits_read_key(fptr, TINT, "NAXIS1", &obj->naxis1, card, &obj->status);
+  fits_read_key(fptr, TINT, "NAXIS2", &obj->naxis2, card, &obj->status);
 
   obj->data = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
 		     (obj->ngroups-1));
   npixels = obj->naxis1*obj->naxis2;
 
-  obj->status = status;
+  //obj->status = status;
   strcpy(obj->f_name, f_name);
   fits_info(obj, &func[0]);
   if (obj->status > 0) exit(1);
@@ -58,14 +59,14 @@ int read_fits(char *f_name, fitsobj* obj){
   for (i=0; i<obj->nramps; i++){
     for (j=0; j<obj->ngroups-1; j++){ 
       hdu_num = 2+j+i*(obj->ngroups-1);
-      fits_movabs_hdu(fptr, hdu_num, &hdutype, &status);
+      fits_movabs_hdu(fptr, hdu_num, &hdutype, &obj->status);
       fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
 		    &obj->data[npixels*(i*(obj->ngroups-1)+j)],
-		    &anynull, &status);
+		    &anynull, &obj->status);
     }
   }
   
-  fits_close_file(fptr, &status);
+  fits_close_file(fptr, &obj->status);
   return(0);
 }
 
