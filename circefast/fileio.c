@@ -6,6 +6,23 @@
 
 #include "fileio.h"
 
+int fits_info(fitsobj* fitso, char* func){
+
+  #pragma omp critical
+  {
+  int id = omp_get_thread_num();
+  printf("-> Thread %d, I/O func %s\n", id, func);
+  printf("Filename    : %-30s\n", fitso->f_name);
+  printf("Nramps      : %4d, Ngroups     : %4d\n", 
+	 fitso->nramps, fitso->ngroups);
+  printf("Naxis1      : %4d, Naxis2      : %4d\n", 
+	 fitso->naxis1, fitso->naxis2);
+  printf("Status      : %4d\n", fitso->status);
+  }
+
+  return(0);
+}
+
 
 int read_fits_omp(char *f_name, fitsobj* obj){
 
@@ -72,6 +89,7 @@ int read_fits_omp(char *f_name, fitsobj* obj){
 
 int read_fits(char *f_name, fitsobj* obj){
 
+  char func[100] = "read_fits";
   int status, hdutype, npixels, anynull;
   int nullval = 0;
   fitsfile *fptr;
@@ -95,6 +113,11 @@ int read_fits(char *f_name, fitsobj* obj){
 		     (obj->ngroups-1));
   npixels = obj->naxis1*obj->naxis2;
 
+  obj->status = status;
+  strcpy(obj->f_name, f_name);
+  fits_info(obj, &func[0]);
+  printf("%d, %d\n", omp_get_thread_num(), obj->status);
+  if (obj->status > 0) exit(1);
 
   for (i=0; i<obj->nramps; i++){
     for (j=0; j<obj->ngroups-1; j++){ 
@@ -112,6 +135,7 @@ int read_fits(char *f_name, fitsobj* obj){
 
 int read_single_fits(char *f_name, fitsobj* obj){
 
+  char func[100] = "read_single_fits";
   int status, hdutype, npixels, anynull;
   int nullval = 0;
   fitsfile *fptr;
@@ -121,27 +145,32 @@ int read_single_fits(char *f_name, fitsobj* obj){
 
   fits_open_file(&fptr, f_name, READONLY, &status);
   
-  
   fits_movabs_hdu(fptr, 1, &hdutype, &status);
-
 
   fits_read_key(fptr, TINT, "NAXIS1", &obj->naxis1, card, &status);
   fits_read_key(fptr, TINT, "NAXIS2", &obj->naxis2, card, &status);
-
-  fits_get_errstatus(status, f_name);
 
   obj->data = malloc(sizeof(float)*obj->naxis1*obj->naxis2);
   npixels = obj->naxis1*obj->naxis2;
 
   fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
 		&obj->data[0], &anynull, &status);
-  
+
+  obj->status = status;
+  strcpy(obj->f_name, f_name);
+  fits_info(obj, &func[0]);
+  printf("%d, %d\n", omp_get_thread_num(), obj->status);
+  if (obj->status > 0) exit(1);
+
+  //printf("%d, %d\n", omp_get_thread_num(), status);
+
   fits_close_file(fptr, &status);
   return(0);
 }
 
 int read_diff_fits(char *f_name, fitsobj* obj){
 
+  char func[100] = "read_diff_fits";
   int status, hdutype, npixels, anynull;
   int nullval = 0;
   fitsfile *fptr;
@@ -169,6 +198,12 @@ int read_diff_fits(char *f_name, fitsobj* obj){
 		     (obj->ngroups-1));
 
   npixels = obj->naxis1*obj->naxis2;
+
+  obj->status = status;
+  strcpy(obj->f_name, f_name);
+  fits_info(obj, &func[0]);
+  printf("%d, %d\n", omp_get_thread_num(), obj->status);
+  if (obj->status > 0) exit(1);
 
   for (i=0; i<obj->nramps; i++){
     for (j=0; j<obj->ngroups-1; j++){

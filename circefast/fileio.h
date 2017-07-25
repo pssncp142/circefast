@@ -3,6 +3,7 @@
 typedef struct {
   float *data;
   float *data2;
+  char f_name[100];
   int nramps;
   int ngroups;
   int naxis1;
@@ -10,6 +11,7 @@ typedef struct {
   int status;
 } fitsobj;
 
+int fits_info(fitsobj*, char*);
 int read_single_fits(char *f_name, fitsobj* obj);
 int read_fits(char *f_name, fitsobj* obj);
 int read_fits_omp(char *f_name, fitsobj* obj);
