@@ -48,12 +48,7 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
     float *dark_img = &dark->data[0];
     #pragma omp for 
     for (i=0; i<npixels; i++){
-      //val = data->data2[i]-data->data[i]-dark->data[i];
       val = data_img2[i]-data_img1[i]-dark_img[i];
-      /*val = 1.072*val-
-	3.046e-5*val*val+
-      4.764e-9*val*val*val-
-      2.605e-13*val*val*val*val;*/      
       val = 0.9701104*val+
       1.106431e-5*val*val+
       -7.3981e-10*val*val*val+
@@ -227,9 +222,6 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
     for (i=0; i<pix_img; i++)
       proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
 	flat->data[tconfig.band_ndx[0]*2048+i];
-
-  printf("yo %d %d\n", pix_img, nimages);
-  
 
   printf("Thread %d flat_divide calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
@@ -684,10 +676,11 @@ int tile_all(config tconfig){
 int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 
   int i, j, k, l;
-  float* im_proc = malloc(sizeof(float)*naxis1*naxis2);
   double tmp_list[9];
   double med, med2, std, std2;
+  float* im_proc = malloc(sizeof(float)*naxis1*naxis2);
   double* tmp_im = malloc(sizeof(double)*naxis1*naxis2);
+  double tmp_arr[2048];
 
   long npix = naxis1*naxis2;
 
@@ -752,6 +745,21 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 
   memcpy(image, im_proc, sizeof(float)*naxis1*naxis2);   
 
+  for (j = 0; j<naxis2; j++ ){
+    for(i=0; i<naxis1; i++)
+      tmp_arr[i] = image[naxis1*j+i];
+    
+    gsl_sort(tmp_arr, 1, 2048);
+    med = gsl_stats_median_from_sorted_data(tmp_arr, 1, 2048);
+    for(i=0; i<naxis1; i++)
+      image[naxis1*j+i] -= med;
+    for(i=1472; i<1472+64; i++)
+      image[naxis1*j+i] = 0;
+    for(i=320; i<320+64; i++)
+      image[naxis1*j+i] = 0;
+
+  }
+
   free(im_proc);
   return(0);
 
@@ -762,8 +770,10 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
 
   int npix = naxis1*naxis2;
   int npix_32 = npix /32;
-  fftw_complex *ff2dfor = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
-  fftw_complex *ff2dback = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+  fftw_complex *ff2dfor = 
+    (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+  fftw_complex *ff2dback = 
+    (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
   float *tmp_im = malloc(sizeof(float)*npix);
   float *orig = malloc(sizeof(float)*npix);
   double *tmp_im2 = malloc(sizeof(double)*npix);
@@ -834,18 +844,6 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
     }
   }
 
-
-  for (j = 0; j<naxis2; j++ ){
-    for(i=0; i<naxis1; i++)
-      tmp_arr[i] = image[naxis1*j+i];
-    
-    gsl_sort(tmp_arr, 1, 2048);
-    med = gsl_stats_median_from_sorted_data(tmp_arr, 1, 2048);
-    //for(i=0; i<naxis1; i++)
-      //MODIFY
-      //image[naxis1*j+i] -= med;
-
-  }
 
   //for (i=0; i< npix; i++) image[i] = -image[i]+orig[i];
 
