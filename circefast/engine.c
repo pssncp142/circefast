@@ -223,15 +223,12 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel private(j) num_threads(1)
-  {
-    #pragma omp for 
-    for (i=0; i<pix_img; i++){
-      for (j=0; j<nimages; j++)
-	proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
-	  flat->data[tconfig.band_ndx[0]*2048+i];
-    }
-  }
+  for (j=0; j<nimages; j++)
+    for (i=0; i<pix_img; i++)
+      proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
+	flat->data[tconfig.band_ndx[0]*2048+i];
+
+  printf("yo %d %d\n", pix_img, nimages);
   
 
   printf("Thread %d flat_divide calc in %.2f ms\n", 
@@ -374,7 +371,7 @@ int fftcorr(config tconfig, int ndx, int st){
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);
+  write_fits(f_name, proc);//
 
   free(data->data);
   free(proc->data);
@@ -844,8 +841,9 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
     
     gsl_sort(tmp_arr, 1, 2048);
     med = gsl_stats_median_from_sorted_data(tmp_arr, 1, 2048);
-    for(i=0; i<naxis1; i++)
-      image[naxis1*j+i] -= med;
+    //for(i=0; i<naxis1; i++)
+      //MODIFY
+      //image[naxis1*j+i] -= med;
 
   }
 
