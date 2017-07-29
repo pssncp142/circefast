@@ -43,12 +43,12 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
   #pragma omp parallel num_threads(1)
   {
     float val;
-    float *data_img2 = &data->data2[0];
+    //float *data_img2 = &data->data2[0];
     float *data_img1 = &data->data[0];
     float *dark_img = &dark->data[0];
     #pragma omp for 
     for (i=0; i<npixels; i++){
-      val = data_img2[i]-data_img1[i]-dark_img[i];
+      val = data_img1[i]-dark_img[i];
       val = 0.9701104*val+
       1.106431e-5*val*val+
       -7.3981e-10*val*val*val+
@@ -68,7 +68,7 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
   write_fits(f_name, proc);
 
   free(data->data);
-  free(data->data2);
+  //free(data->data2);
   free(proc->data);
   free(data);
   free(proc);

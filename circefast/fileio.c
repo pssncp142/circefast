@@ -129,29 +129,42 @@ int read_diff_fits(char *f_name, fitsobj* obj){
   int hdutype, npixels, anynull;
   int nullval = 0;
   fitsfile *fptr;
-  int i,j;
+  int i,j,k;
   int hdu_num;
+  int st_pos;
+  
+  float* tmp_img1, *tmp_img2, *data_ptr;
 
   obj->status = 0;
   fits_open_file(&fptr, f_name, READONLY, &obj->status); // get the pointer
   init_fits_object(fptr, obj, f_name, 0, func);
 
-  obj->data2 = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
-		     (obj->ngroups-1));
+  //obj->data2 = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
+  //		     (obj->ngroups-1));
 
   npixels = obj->naxis1*obj->naxis2;
+
+  //float tmp_img1[npixels], tmp_img2[npixels];
+  tmp_img1 = malloc(sizeof(float)*obj->naxis1*obj->naxis2);
+  tmp_img2 = malloc(sizeof(float)*obj->naxis1*obj->naxis2);
+  data_ptr = &obj->data[0];
 
   for (i=0; i<obj->nramps; i++){
     for (j=0; j<obj->ngroups-1; j++){
       hdu_num = 2+j+i*(obj->ngroups);
       fits_movabs_hdu(fptr, hdu_num, &hdutype, &obj->status);
       fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
-		    &obj->data[npixels*(i*(obj->ngroups-1)+j)],
+		    &tmp_img1[0],
 		    &anynull, &obj->status);
       fits_movabs_hdu(fptr, hdu_num+1, &hdutype, &obj->status);
       fits_read_img(fptr, TFLOAT, 1, npixels, &nullval, 
-		    &obj->data2[npixels*(i*(obj->ngroups-1)+j)],
+		    &tmp_img2[0],
 		    &anynull, &obj->status);
+      st_pos = ((obj->ngroups-1)*i+j)*npixels;
+      for (k=0; k<npixels; k++) 
+	data_ptr[st_pos+k] = tmp_img2[k] - tmp_img1[k];
+      //memcpy(&obj->data[((obj->ngroups-1)*i+j)*npixels], &tmp_img2[0], 
+      //      sizeof(float)*npixels);
  
     }
   }
