@@ -139,12 +139,8 @@ int read_diff_fits(char *f_name, fitsobj* obj){
   fits_open_file(&fptr, f_name, READONLY, &obj->status); // get the pointer
   init_fits_object(fptr, obj, f_name, 0, func);
 
-  //obj->data2 = malloc(sizeof(float)*obj->naxis1*obj->naxis2*obj->nramps*
-  //		     (obj->ngroups-1));
-
   npixels = obj->naxis1*obj->naxis2;
 
-  //float tmp_img1[npixels], tmp_img2[npixels];
   tmp_img1 = malloc(sizeof(float)*obj->naxis1*obj->naxis2);
   tmp_img2 = malloc(sizeof(float)*obj->naxis1*obj->naxis2);
   data_ptr = &obj->data[0];
@@ -163,8 +159,6 @@ int read_diff_fits(char *f_name, fitsobj* obj){
       st_pos = ((obj->ngroups-1)*i+j)*npixels;
       for (k=0; k<npixels; k++) 
 	data_ptr[st_pos+k] = tmp_img2[k] - tmp_img1[k];
-      //memcpy(&obj->data[((obj->ngroups-1)*i+j)*npixels], &tmp_img2[0], 
-      //      sizeof(float)*npixels);
  
     }
   }

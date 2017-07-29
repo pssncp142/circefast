@@ -12,23 +12,52 @@
 #include "engine.h"
 
 #define NUM_THREADS 5
+#define OUTPUT 0
+
+fitsobj ** obj_list;
+
+int read_data(config tconfig){
+
+  int i;
+  char f_name_tmp[100], f_name[100];
+  obj_list = malloc(sizeof(fitsobj)*tconfig.n_dith);
+
+  for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
+    obj_list[i-tconfig.st] = malloc(sizeof(fitsobj));
+    strcpy(f_name_tmp, tconfig.path);
+    strcat(f_name_tmp, tconfig.f_name);
+    sprintf(f_name, f_name_tmp, i);
+    read_diff_fits(f_name, obj_list[i-tconfig.st]);
+  }  
+
+  return(1);
+}
+
+fitsobj *get_data(int ndx){
+  
+  return(obj_list[ndx]);
+
+}
+
+int update_data(int ndx, float* img, int size){
+
+  memcpy(&obj_list[ndx]->data[0], img, size*sizeof(float));
+
+  return(1);
+}
 
 int darksub(config tconfig, fitsobj *dark, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data;
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name_tmp[100], f_name[100];
   int npixels;
   int i;
-  char f_fmt[100] = "darksub/IPA_seq%d_dith_%d.fits";
+  char f_fmt_out[100] = "darksub/IPA_seq%d_dith_%d.fits";
   double time;
 
-  strcpy(f_name_tmp, tconfig.path);
-  strcat(f_name_tmp, tconfig.f_name);
-  sprintf(f_name, f_name_tmp, ndx);
-
-  read_diff_fits(f_name, data);
-  sprintf(f_name, f_fmt, tconfig.seq, ndx-st+1);  
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -43,7 +72,6 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
   #pragma omp parallel num_threads(1)
   {
     float val;
-    //float *data_img2 = &data->data2[0];
     float *data_img1 = &data->data[0];
     float *dark_img = &dark->data[0];
     #pragma omp for 
@@ -63,14 +91,17 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
   time = - time;
   printf("Thread %d darksub calc in %.2f ms\n", 
 	 omp_get_thread_num(), time*1000);
-  
-  sprintf(f_name, f_fmt, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);
 
-  free(data->data);
-  //free(data->data2);
+  if (OUTPUT){
+    sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
+    write_fits(f_name, proc);
+  }
+  
+  #pragma omp critical
+  update_data(ndx-tconfig.st, proc->data, npixels);
+
+
   free(proc->data);
-  free(data);
   free(proc);
   
   return(0);
@@ -78,7 +109,7 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
 
 int doskies(config tconfig, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data;
   fitsobj *proc = malloc(sizeof(fitsobj));
   char  f_name[100];
   int npixels, nimages;
@@ -87,8 +118,9 @@ int doskies(config tconfig, int ndx, int st){
   char f_fmt_out[100] = "skies/IPA_seq%d_dith_%d.fits";
   double time;
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
+
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -129,9 +161,7 @@ int doskies(config tconfig, int ndx, int st){
   sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);
   write_single_fits(f_name, proc);
 
-  free(data->data);
   free(proc->data);
-  free(data);
   free(proc);
 
   return(0);
@@ -139,7 +169,7 @@ int doskies(config tconfig, int ndx, int st){
 
 int skysub(config tconfig, fitsobj *sky, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data;
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name[100];
   int npixels, nimages;
@@ -149,8 +179,8 @@ int skysub(config tconfig, fitsobj *sky, int ndx, int st){
   char f_fmt_out[100] = "skysub/IPA_seq%d_dith_%d.fits";
   double time;
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -178,13 +208,15 @@ int skysub(config tconfig, fitsobj *sky, int ndx, int st){
   printf("Thread %d skysub calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
-  sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);
+  if (OUTPUT){
+    sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
+    write_fits(f_name, proc);
+  }
 
+  #pragma omp critical
+  update_data(ndx-tconfig.st, proc->data, npixels);
 
-  free(data->data);
   free(proc->data);
-  free(data);
   free(proc);
 
   return(0);
@@ -192,7 +224,7 @@ int skysub(config tconfig, fitsobj *sky, int ndx, int st){
 
 int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data;
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name[100];
   int npixels, nimages;
@@ -202,8 +234,8 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
   char f_fmt_out[100] = "flat_divide/IPA_seq%d_dith_%d.fits";
   double time;
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -226,12 +258,15 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
   printf("Thread %d flat_divide calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
-  sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);
+  if (OUTPUT){
+    sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
+    write_fits(f_name, proc);
+  }
 
-  free(data->data);
+  #pragma omp critical
+  update_data(ndx-tconfig.st, proc->data, npixels);
+
   free(proc->data);
-  free(data);
   free(proc);
 
   return(0);
@@ -239,7 +274,7 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
 
 int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data; 
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name[100];
   int npixels, nimages;
@@ -249,8 +284,8 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
   char f_fmt_out[100] = "badpixrem/IPA_seq%d_dith_%d.fits";
   double time;
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -267,34 +302,30 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
 
 #pragma omp parallel num_threads(1)
   {
-    //float *badpixim = malloc(sizeof(float)*pix_img);
-    //float *image = malloc(sizeof(float)*pix_img);
-    //float *data_ref = &data->data[0];
     float *proc_ref = &proc->data[0];
     float *image = &data->data[0];
     float *badpixim = &badpix->data[0];
 
     #pragma omp for
     for (i=0; i<nimages; i++){
-      //memcpy(image, &data_ref[i*pix_img], sizeof(float)*pix_img);
-      //memcpy(badpixim, &badpix->data[0], sizeof(float)*pix_img);
       badpixfun(&image[i*pix_img], &badpixim[0], data->naxis1, data->naxis2);
       memcpy(&proc_ref[i*pix_img], &image[i*pix_img], sizeof(float)*pix_img);
     }
 
-    //free(badpixim);
-    //free(image);
   }
   
   printf("Thread %d badpix calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
-  sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);
+  if (OUTPUT){
+    sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
+    write_fits(f_name, proc);
+  }
 
-  free(data->data);
+  #pragma omp critical
+  update_data(ndx-tconfig.st, proc->data, npixels);
+
   free(proc->data);
-  free(data);
   free(proc);
 
   return(0);
@@ -302,7 +333,7 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
 
 int fftcorr(config tconfig, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data; 
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name[100];
   int npixels, nimages;
@@ -312,8 +343,8 @@ int fftcorr(config tconfig, int ndx, int st){
   char f_fmt_out[100] = "fftcorr/IPA_seq%d_dith_%d.fits";
   double time;
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
 
   proc->naxis1 = data->naxis1;
   proc->naxis2 = data->naxis2;
@@ -348,7 +379,6 @@ int fftcorr(config tconfig, int ndx, int st){
       memcpy(image, &data->data[i*pix_img], sizeof(float)*pix_img);
       fftcorrfun(image, data->naxis1, data->naxis2, pfor, pback);
       memcpy(&proc->data[i*pix_img], &image[0], sizeof(float)*pix_img);
-      //fftcorrfun(&proc->data[i*pix_img], data->naxis1, data->naxis2, pfor, pback);
     }
 
     #pragma omp critical
@@ -362,12 +392,15 @@ int fftcorr(config tconfig, int ndx, int st){
   printf("Thread %d fftcorr calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
-  sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
-  write_fits(f_name, proc);//
+  if (OUTPUT){
+    sprintf(f_name, f_fmt_out, tconfig.seq, ndx-st+1);  
+    write_fits(f_name, proc);
+  }
 
-  free(data->data);
+  #pragma omp critical
+  update_data(ndx-tconfig.st, proc->data, npixels);
+
   free(proc->data);
-  free(data);
   free(proc);
 
   return(0);
@@ -375,7 +408,7 @@ int fftcorr(config tconfig, int ndx, int st){
 
 int tile_images(config tconfig, int ndx, int st){  
 
-  fitsobj *data = malloc(sizeof(fitsobj));
+  fitsobj *data;
   fitsobj *proc = malloc(sizeof(fitsobj));
   char f_name[100];
   int nimages;
@@ -387,8 +420,8 @@ int tile_images(config tconfig, int ndx, int st){
   //int bin = 1;
   int crop[2] = {1, 30};
 
-  sprintf(f_name, f_fmt_in, tconfig.seq, ndx-st+1);  
-  read_fits(f_name, data);
+  #pragma omp critical
+  data = get_data(ndx-tconfig.st);
   
   pix_img = (data->naxis1)*data->naxis2;
   nimages = (data->ngroups-1)*data->nramps;
@@ -431,6 +464,7 @@ int darksub_all(config tconfig){
 
   int i;   double time;
   printf("%s\n", tconfig.f_dark);
+  read_data(tconfig);
 
 #pragma omp parallel num_threads(NUM_THREADS)
   {
