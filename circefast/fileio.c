@@ -169,6 +169,8 @@ int read_diff_fits(char *f_name, fitsobj* obj){
     }
   }
 
+  free(tmp_img1);
+  free(tmp_img2);
   fits_close_file(fptr, &obj->status);
   return(0);
 }
