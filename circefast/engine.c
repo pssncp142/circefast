@@ -13,6 +13,7 @@
 
 #define NUM_THREADS 5
 #define OUTPUT 0
+#define SIG_FFT 3
 
 fitsobj ** obj_list;
 
@@ -557,6 +558,34 @@ int skysub_all(config tconfig){
 	tmp_skies[j+(i-tconfig.st)*npixels] = skies->data[j];
     }
 
+    //scale skies
+
+    #pragma omp for private(j)
+    for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
+      double* diff_sky = malloc(sizeof(double)*npixels);
+      double med;
+      int cnt = 0;
+
+      for (j=0; j<npixels; j++){
+
+	if (tmp_skies[j] != 0){
+	  diff_sky[cnt] = tmp_skies[j+(i-tconfig.st)*npixels] -  
+	    tmp_skies[j];
+	  cnt += 1;
+	}
+
+      }
+
+      gsl_sort(diff_sky, 1, cnt);
+      med = gsl_stats_median_from_sorted_data(diff_sky, 1, cnt);
+
+      for (j=0; j<npixels; j++)
+	tmp_skies[j+(i-tconfig.st)*npixels] -= med;
+
+      printf("%f %f %f\n", med, tmp_skies[5500], diff_sky[5500]);
+      free(diff_sky);
+    }
+
 
     #pragma omp barrier
     free(skies->data);
@@ -585,8 +614,8 @@ int skysub_all(config tconfig){
 
   fitsobj *flat = malloc(sizeof(fitsobj));
   read_single_fits(tconfig.f_flat, flat);
-  for (i=0; i<npixels;i++)
-    sky->data[i] /= flat->data[tconfig.band_ndx[0]*2048+i];
+  //for (i=0; i<npixels;i++)
+  //  sky->data[i] /= flat->data[tconfig.band_ndx[0]*2048+i];
   sprintf(f_name, "skies/IPA_deq%d_chk.fits", tconfig.seq);
   write_single_fits(f_name, sky);  
   
@@ -600,15 +629,23 @@ int skysub_all(config tconfig){
 int flatdivide_all(config tconfig){
 
   int i; double time;
-  
+
 #pragma omp parallel num_threads(NUM_THREADS)
   {
 #pragma omp master
     printf("**flatdivide with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
 
+  int npixels;
+  float* flat_im;
   fitsobj *flat = malloc(sizeof(fitsobj));
   read_single_fits(tconfig.f_flat, flat);
+  npixels = flat->naxis1*flat->naxis2;
+  flat_im = &flat->data[0];
+
+  for (i=0; i<npixels; i++)
+    if ((flat_im[i] < 0.5) | (flat_im[i] > 2.))
+      flat_im[i] = 1.;
 
 #pragma omp for
     for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
@@ -792,6 +829,9 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
     for(i=320; i<320+64; i++)
       image[naxis1*j+i] = 0;
 
+    for(i=0; i<naxis1; i++)
+      if(!isfinite(image[naxis1*j+i]))
+	image[naxis1*j+i] = 0;
   }
 
   free(im_proc);
@@ -862,7 +902,7 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
       for (j=2; j< naxis2-2; j++){
 	image[naxis1*j+i] -= mean;
 	image[naxis1*j+i] /= std;     
-	if (abs(image[naxis1*j+i]) > 3){
+	if (abs(image[naxis1*j+i]) > SIG_FFT){
 	  ff2dback[64*j+i-stride] = mean+0.*0.5*ff2dfor[64*j+i-stride]/cabs(ff2dfor[64*j+i-stride])* 
 	    (cabs(ff2dfor[64*(j+1)+i-stride])+cabs(ff2dfor[64*(j-1)+i-stride]));
 	}	
