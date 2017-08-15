@@ -49,7 +49,7 @@ int init_fits_object(fitsfile* fptr, fitsobj* obj, char* f_name, int opt,
   } else if (opt == 1) { // to read single fits
     obj->ngroups = 2;
     obj->nramps = 1;
-  } else if (opt == 2) { // to read single fits
+  } else if (opt == 2) { // to read a fits raw image in FULL RAMP mode.
     obj->ngroups = 2;
     fits_movabs_hdu(fptr, 1, &hdutype, &obj->status);
     fits_read_key(fptr, TINT, "NRAMPS", &obj->nramps, card, &obj->status);

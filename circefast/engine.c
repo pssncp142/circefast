@@ -11,10 +11,11 @@
 #include "fileio.h"
 #include "engine.h"
 
-#define NUM_THREADS 5
+#define NUM_THREADS 3
 #define OUTPUT 1
 #define SIG_FFT 3
 #define FULL_RAMP 1
+#define FULL_FLAT 0
 
 fitsobj ** obj_list;
 
@@ -239,10 +240,16 @@ int flatdivide(config tconfig, fitsobj *flat, int ndx, int st){
   
   time = omp_get_wtime();
 
-  for (j=0; j<nimages; j++)
-    for (i=0; i<pix_img; i++)
-      proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
-	flat->data[tconfig.band_ndx[0]*2048+i];
+  if (FULL_FLAT)
+    for (j=0; j<nimages; j++)
+      for (i=0; i<pix_img; i++)
+	proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
+	  flat->data[tconfig.band_ndx[0]*2048+i];
+  else
+    for (j=0; j<nimages; j++)
+      for (i=0; i<pix_img; i++)
+	proc->data[i+j*pix_img] = data->data[i+j*pix_img]/
+	  flat->data[i];
 
   printf("Thread %d flat_divide calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
