@@ -16,6 +16,7 @@ int read_single_fits(char *f_name, fitsobj* obj);
 int read_fits(char *f_name, fitsobj* obj);
 int read_fits_omp(char *f_name, fitsobj* obj);
 int read_diff_fits(char *f_name, fitsobj* obj);
+int read_diff_framp(char *f_name, fitsobj* obj);
 int write_single_fits(char *f_name, fitsobj *obj);
 int write_fits(char *f_name, fitsobj *obj);
 

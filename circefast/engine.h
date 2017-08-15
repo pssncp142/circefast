@@ -35,4 +35,4 @@ int fftcorr_all(config tconfig);
 int tile_all(config tconfig);
 int badpixfun(float *image, float *badpixim, int naxis1, int naxis2); 
 int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor,
-	       fftw_plan pback);
+	       fftw_plan pback, fftw_complex*, fftw_complex*);

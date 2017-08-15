@@ -12,8 +12,9 @@
 #include "engine.h"
 
 #define NUM_THREADS 5
-#define OUTPUT 0
+#define OUTPUT 1
 #define SIG_FFT 3
+#define FULL_RAMP 1
 
 fitsobj ** obj_list;
 
@@ -28,7 +29,10 @@ int read_data(config tconfig){
     strcpy(f_name_tmp, tconfig.path);
     strcat(f_name_tmp, tconfig.f_name);
     sprintf(f_name, f_name_tmp, i);
-    read_diff_fits(f_name, obj_list[i-tconfig.st]);
+    if (FULL_RAMP)
+      read_diff_fits_framp(f_name, obj_list[i-tconfig.st]);
+    else
+      read_diff_fits(f_name, obj_list[i-tconfig.st]);
   }  
 
   return(1);
@@ -70,23 +74,17 @@ int darksub(config tconfig, fitsobj *dark, int ndx, int st){
 
   time = omp_get_wtime();
 
-  #pragma omp parallel num_threads(1)
-  {
-    float val;
-    float *data_img1 = &data->data[0];
-    float *dark_img = &dark->data[0];
-    #pragma omp for 
-    for (i=0; i<npixels; i++){
-      val = data_img1[i]-dark_img[i];
-      val = 0.9701104*val+
+  float val;
+  float *data_img1 = &data->data[0];
+  float *dark_img = &dark->data[0];
+  for (i=0; i<npixels; i++){
+    val = data_img1[i]-dark_img[i];
+    val = 0.9701104*val+
       1.106431e-5*val*val+
       -7.3981e-10*val*val*val+
       2.490898e-14*val*val*val*val;
-      proc->data[i] = val;
-    }
-
+    proc->data[i] = val;
   }
-  
 
   time -= omp_get_wtime();
   time = - time;
@@ -133,25 +131,19 @@ int doskies(config tconfig, int ndx, int st){
 
   time = omp_get_wtime();
 
-  //printf("here\n.");
-
   nimages = proc->nramps*(proc->ngroups-1);
 
   int pix_img = npixels/nimages;
 
-#pragma omp parallel num_threads(1)
-  {
-    double *tmp_list = malloc(sizeof(double)*nimages);
-    int j;
-#pragma omp for schedule(dynamic, 2048)
-    for (i=0; i<pix_img; i++){
-      for (j=0; j<nimages; j++){
-	tmp_list[j] = (double)data->data[i+j*pix_img];
-      }
-      gsl_sort(tmp_list, 1, nimages);
-      proc->data[i] = (float) 
-	gsl_stats_median_from_sorted_data(tmp_list, 1, nimages);
+  double *tmp_list = malloc(sizeof(double)*nimages);
+  int j;
+  for (i=0; i<pix_img; i++){
+    for (j=0; j<nimages; j++){
+      tmp_list[j] = (double)data->data[i+j*pix_img];
     }
+    gsl_sort(tmp_list, 1, nimages);
+    proc->data[i] = (float) 
+      gsl_stats_median_from_sorted_data(tmp_list, 1, nimages);
   }
 
 
@@ -197,13 +189,9 @@ int skysub(config tconfig, fitsobj *sky, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel private(j) num_threads(1)
-  {
-    #pragma omp for 
-    for (i=0; i<pix_img; i++){
-      for (j=0; j<nimages; j++)
-	proc->data[i+j*pix_img] = data->data[i+j*pix_img]-sky->data[i];
-    }
+  for (i=0; i<pix_img; i++){
+    for (j=0; j<nimages; j++)
+      proc->data[i+j*pix_img] = data->data[i+j*pix_img]-sky->data[i];
   }
   
   printf("Thread %d skysub calc in %.2f ms\n", 
@@ -301,20 +289,15 @@ int badpixrem(config tconfig, fitsobj *badpix, int ndx, int st){
   
   time = omp_get_wtime();
 
-#pragma omp parallel num_threads(1)
-  {
-    float *proc_ref = &proc->data[0];
-    float *image = &data->data[0];
-    float *badpixim = &badpix->data[0];
+  float *proc_ref = &proc->data[0];
+  float *image = &data->data[0];
+  float *badpixim = &badpix->data[0];
 
-    #pragma omp for
-    for (i=0; i<nimages; i++){
-      badpixfun(&image[i*pix_img], &badpixim[0], data->naxis1, data->naxis2);
-      memcpy(&proc_ref[i*pix_img], &image[i*pix_img], sizeof(float)*pix_img);
-    }
-
+  for (i=0; i<nimages; i++){
+    badpixfun(&image[i*pix_img], &badpixim[0], data->naxis1, data->naxis2);
+    memcpy(&proc_ref[i*pix_img], &image[i*pix_img], sizeof(float)*pix_img);
   }
-  
+
   printf("Thread %d badpix calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
@@ -339,7 +322,7 @@ int fftcorr(config tconfig, int ndx, int st){
   char f_name[100];
   int npixels, nimages;
   int pix_img;
-  int i;
+  int i,j;
   char f_fmt_in[100] = "skysub/IPA_seq%d_dith_%d.fits";
   char f_fmt_out[100] = "fftcorr/IPA_seq%d_dith_%d.fits";
   double time;
@@ -360,36 +343,38 @@ int fftcorr(config tconfig, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel  num_threads(1)
+  int npix_32 = data->naxis1*data->naxis2/32;
+  float *image = malloc(sizeof(float)*pix_img);
+  fftw_plan pfor, pback;
+  fftw_complex *ff2dfor, *ff2dback;
+  ff2dfor = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+  ff2dback = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+
+  #pragma omp critical
   {
-    int npix_32 = data->naxis1*data->naxis2/32;
-    float *image = malloc(sizeof(float)*pix_img);
-    fftw_complex *ff2dfor = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
-    fftw_complex *ff2dback = (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
-    fftw_plan pfor, pback;
-    #pragma omp critical
-    {
     pfor = fftw_plan_dft_2d(data->naxis2, 64, ff2dfor, ff2dfor, FFTW_FORWARD, FFTW_ESTIMATE);
-    pback = fftw_plan_dft_2d(data->naxis2, 64, ff2dfor, ff2dback, FFTW_BACKWARD, FFTW_ESTIMATE);
-    fftw_free(ff2dfor);
-    fftw_free(ff2dback);
-    }
+    pback = fftw_plan_dft_2d(data->naxis2, 64, ff2dback, ff2dback, FFTW_BACKWARD, FFTW_ESTIMATE);
+  }
 
-    #pragma omp for
-    for (i=0; i<nimages; i++){
-      memcpy(image, &data->data[i*pix_img], sizeof(float)*pix_img);
-      fftcorrfun(image, data->naxis1, data->naxis2, pfor, pback);
-      memcpy(&proc->data[i*pix_img], &image[0], sizeof(float)*pix_img);
-    }
+  for (i=0; i<nimages; i++){
+    for (j=0; j<pix_img; j++)
+      image[j] = data->data[i*pix_img+j];
+    fftcorrfun(&image[0], data->naxis1, data->naxis2, pfor, pback, 
+	       ff2dfor, ff2dback);
+    for (j=0; j<pix_img; j++)
+      proc->data[i*pix_img+j] = image[j];
+  }
 
-    #pragma omp critical
-    {
-    free(image);
+  #pragma omp critical
+  {
     fftw_destroy_plan(pfor);
     fftw_destroy_plan(pback);
-    }
   }
-  
+
+  fftw_free(ff2dfor);
+  fftw_free(ff2dback);  
+  free(image);
+
   printf("Thread %d fftcorr calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
@@ -433,21 +418,17 @@ int tile_images(config tconfig, int ndx, int st){
   
   time = omp_get_wtime();
 
-  #pragma omp parallel num_threads(1)
-  {
-    #pragma omp for 
-    for (i=0; i<nimages; i++){
-      sprintf(f_name, f_fmt_out, (tconfig.seq-1)*tconfig.n_dith*nimages+(ndx-st)*nimages+i+1);  
-      for (j=0; j<proc->naxis2;j++) 
-	for (k=crop[0]*64; k<proc->naxis1+crop[0]*64;k++) 
-	  proc->data[j*proc->naxis1+k-crop[0]*64] = data->data[i*pix_img+j*data->naxis1+k]; 
-      for (j=0; j<proc->naxis2;j++) 
-	for (k=64*5; k<64*6;k++) 
-	  proc->data[j*proc->naxis1+k-crop[0]*64] = 0; 
-      write_single_fits(f_name, proc);
-    }
+  for (i=0; i<nimages; i++){
+    sprintf(f_name, f_fmt_out, (tconfig.seq-1)*tconfig.n_dith*nimages+(ndx-st)*nimages+i+1);  
+    for (j=0; j<proc->naxis2;j++) 
+      for (k=crop[0]*64; k<proc->naxis1+crop[0]*64;k++) 
+	proc->data[j*proc->naxis1+k-crop[0]*64] = data->data[i*pix_img+j*data->naxis1+k]; 
+    for (j=0; j<proc->naxis2;j++) 
+      for (k=64*5; k<64*6;k++) 
+	proc->data[j*proc->naxis1+k-crop[0]*64] = 0; 
+    write_single_fits(f_name, proc);
   }
-  
+
   printf("Thread %d tile calc in %.2f ms\n", 
 	 omp_get_thread_num(), (omp_get_wtime()-time)*1000);
 
@@ -701,18 +682,18 @@ int fftcorr_all(config tconfig){
 
   int i; double time;
   
-#pragma omp parallel private(time) num_threads(NUM_THREADS)
+  #pragma omp parallel private(time) num_threads(NUM_THREADS)
   {
-    #pragma omp master
+  #pragma omp master
     printf("**fftcorr with %d threads\n", omp_get_num_threads());
     time = omp_get_wtime();
 
-  #pragma omp for
+    #pragma omp for
   for (i=tconfig.st; i<tconfig.st+tconfig.n_dith; i++){
     fftcorr(tconfig, i, tconfig.st);
   }
 
-    #pragma omp master
+  #pragma omp master
     printf("fftcorr %.2f ms\n", (omp_get_wtime()-time)*1000);
   }
 
@@ -840,14 +821,14 @@ int badpixfun(float *image, float *badpixim, int naxis1, int naxis2){
 }
 
 
-int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan pback){
+int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan pback, fftw_complex* ff2dfor,  fftw_complex* ff2dback){
 
   int npix = naxis1*naxis2;
   int npix_32 = npix /32;
-  fftw_complex *ff2dfor = 
-    (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
-  fftw_complex *ff2dback = 
-    (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+  //fftw_complex *ff2dfor = 
+  //  (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
+  //fftw_complex *ff2dback = 
+  //  (fftw_complex*)fftw_malloc(sizeof(fftw_complex)*npix_32);
   float *tmp_im = malloc(sizeof(float)*npix);
   float *orig = malloc(sizeof(float)*npix);
   double *tmp_im2 = malloc(sizeof(double)*npix);
@@ -864,11 +845,15 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
     stride = k*64;
     for (j=0; j<naxis2; j++ ){
       for (i=stride; i<64+stride; i++){
-	ff2dfor[64*j+i-stride] = (double) image[naxis1*j+i]+0*I;
+	ff2dfor[64*j+i-stride] = (fftw_complex) image[naxis1*j+i]+0*I;
       }
+      if ((j==0) | (j == naxis2 -1))
+	for (i=stride; i<64+stride; i++)
+	  ff2dfor[64*j+i-stride] = (fftw_complex) 0;	
     }
 
-    fftw_execute_dft(pfor, ff2dfor, ff2dfor);
+    fftw_execute(pfor);
+    //fftw_execute_dft(pfor, ff2dfor, ff2dfor);
 
     for (j=0; j<naxis2; j++ ){
       for (i=stride; i<64+stride; i++){
@@ -883,7 +868,7 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
       for (i=stride; i<64+stride; i++){
 	image[naxis1*j+i] = (tmp_im[naxis1*(j+1)+i] + tmp_im[naxis1*(j-1)+i]
 			   -2*tmp_im[naxis1*j+i]);
-	tmp_im2[naxis1*j+i] = image[naxis1*j+i];
+	tmp_im2[naxis1*j+i] = (double) image[naxis1*j+i];
       }
     }
 
@@ -909,7 +894,8 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
       }
     }
 
-    fftw_execute_dft(pback, ff2dback, ff2dback);
+    //fftw_execute_dft(pback, ff2dback, ff2dback);
+    fftw_execute(pback);
 
     for (j=0; j<naxis2; j++ ){
       for (i=stride; i<64+stride; i++){
@@ -924,8 +910,8 @@ int fftcorrfun(float* image, int naxis1, int naxis2, fftw_plan pfor, fftw_plan p
   free(orig);
   free(tmp_im);
   free(tmp_im2);			  
-  fftw_free(ff2dfor);
-  fftw_free(ff2dback);
+  //fftw_free(ff2dfor);
+  //fftw_free(ff2dback);
 
   return(0);
 }
